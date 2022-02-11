@@ -72,10 +72,118 @@ enum class eStates: uint8_t
 //   UPPER_TANK_DELAY,
 };
 
+class DownTimer
+{
+public:
+   DownTimer();
+
+   void set( uint8_t minutes, uint8_t seconds, bool start = false );   
+   void start();
+   void stop();
+   bool is_done();
+   void get( uint8_t* minutes, uint8_t* seconds );
+
+   void state_machine();
+
+private:
+   uint8_t minutes{0};
+   uint8_t seconds{0};
+
+   uint8_t state{0};
+   bool running{false};
+   bool done{false};
+};
+
+DownTimer::DownTimer()
+{
+   // nothing
+}
+
+void DownTimer::set( uint8_t minutes, uint8_t seconds, bool start )
+{
+   if( this->running ) this->running = false;
+
+   this->minutes = minutes;
+   this->seconds = seconds;
+   this->done = false;
+
+   if( start ) this->running = true;
+}
+
+void DownTimer::get( uint8_t* minutes, uint8_t* seconds )
+{
+   *minutes = this->minutes;
+   *seconds = this->seconds;
+}
+
+void DownTimer::start()
+{
+   if( this->seconds > 0 )
+   {
+      this->running = true;
+      this->done = false;
+   }
+}
+
+void DownTimer::stop()
+{
+   this->minutes = 0;
+   this->seconds = 0;
+   this->running = false;
+   this->done = false;
+}
+
+bool DownTimer::is_done()
+{
+   if( this->done )
+   {
+      this->done = false;
+      return true;
+   }
+   return false;
+}
+
+void DownTimer::state_machine()
+{
+   if( this->running )
+   {
+      if( this->seconds == 0 )
+      {
+         this->seconds = 59;
+
+         if( this->minutes > 0 ) --this->minutes;
+      }
+      else --this->seconds;
 
 
+      if( this->seconds == 0 and this->minutes == 0 )
+      {
+         this->running = false;
+         this->done = true;
+      }
+   }
+}
 
+
+//----------------------------------------------------------------------
+//  
+//----------------------------------------------------------------------
 LiquidCrystal lcd( LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7 );
+
+DownTimer timer;
+
+
+void print_time( uint8_t row, uint8_t col, uint8_t minutes, uint8_t seconds )
+{
+   lcd.setCursor( col, row );
+
+   if( minutes < 10 ) lcd.print( "0" );
+   lcd.print( minutes );
+   lcd.print( ":" );
+   if( seconds < 10 ) lcd.print( "0" );
+   lcd.print( seconds );
+}
+
 
 void setup()
 {
@@ -101,7 +209,7 @@ void setup()
    digitalWrite( LCD_BACKLIGHT, HIGH );
    lcd.clear();
    lcd.home();
-   lcd.print( "   UB-C328" );
+   lcd.print( "    UB-C328" );
    lcd.setCursor( 0, 1 );
    lcd.print( " by fjrg76.com" );
    delay( 4000 );
@@ -137,6 +245,9 @@ void serial_report( Inputs& inputs )
 void loop()
 {
    static uint8_t main_timer = MS_TO_TICKS( 1000 );
+   static uint8_t seconds_tick_base = MS_TO_TICKS( 1000 );
+
+
    static uint16_t lcd_backlight_timer = 0;
    static uint8_t lcd_backlight_state = 0;
 
@@ -146,6 +257,23 @@ void loop()
 
 
    delay( SYSTEM_TICK );
+
+   --seconds_tick_base;
+   if( seconds_tick_base == 0 )
+   {
+      seconds_tick_base = MS_TO_TICKS( 1000 );
+
+      timer.state_machine();
+   }
+
+
+   if( state == eStates::UPPER_TANK_FILLING )
+   {
+      uint8_t minutes, seconds;
+      timer.get( &minutes, &seconds );
+      print_time( 1, 5, minutes, seconds );
+   }
+
 
    if( working_timer > 0 )
    {
@@ -195,7 +323,9 @@ void loop()
                digitalWrite( WATER_PUMP, HIGH );
 
 //               working_timer = ( 1000 * 60 * 15 / SYSTEM_TICK );
-               working_timer = MS_TO_TICKS( 1000 * 30 );
+//               working_timer = MS_TO_TICKS( 1000 * 30 );
+
+               timer.set( 1, 15, true );
 
                lcd.clear();
                lcd.print( "UP_TNK FILL" );
@@ -207,6 +337,8 @@ void loop()
             break;
 
          case eStates::UPPER_TANK_FILLING:
+         {
+
             if( inputs.lower_tank_bottom == LOW )
             {
                state = eStates::LOWER_TANK_FILLING;
@@ -222,10 +354,13 @@ void loop()
                state = eStates::WAITING;
                digitalWrite( WATER_PUMP, LOW );
 
+               timer.stop();
+
                lcd.clear();
                lcd.print( "WAITING..." );
             }
-            else if( working_timer == 0 )
+//            else if( working_timer == 0 )
+            else if( timer.is_done() )
             {
                state = eStates::TIME_OVER;
                digitalWrite( WATER_PUMP, LOW );
@@ -243,6 +378,7 @@ void loop()
                ;
             }
             break;
+         }
 
          case eStates::LOWER_TANK_FILLING:
             if( inputs.lower_tank_top == HIGH )
