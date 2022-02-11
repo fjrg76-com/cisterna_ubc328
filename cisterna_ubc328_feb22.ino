@@ -253,7 +253,6 @@ void loop()
 
    static Inputs inputs;
    static eStates state = eStates::WAITING;
-   static uint16_t working_timer = 0;
 
 
    delay( SYSTEM_TICK );
@@ -274,11 +273,6 @@ void loop()
       print_time( 1, 5, minutes, seconds );
    }
 
-
-   if( working_timer > 0 )
-   {
-      --working_timer;
-   }
 
    if( lcd_backlight_timer > 0 )
    {
@@ -321,9 +315,6 @@ void loop()
             {
                state = eStates::UPPER_TANK_FILLING;
                digitalWrite( WATER_PUMP, HIGH );
-
-//               working_timer = ( 1000 * 60 * 15 / SYSTEM_TICK );
-//               working_timer = MS_TO_TICKS( 1000 * 30 );
 
                timer.set( 1, 15, true );
 
@@ -385,8 +376,6 @@ void loop()
             {
                state = eStates::UPPER_TANK_FILLING;
                digitalWrite( WATER_PUMP, HIGH );
-
-               working_timer = MS_TO_TICKS( 1000 * 30 );
 
                lcd.clear();
                lcd.print( "UP_TNK FILL" );
