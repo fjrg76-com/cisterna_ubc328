@@ -173,7 +173,7 @@ LiquidCrystal lcd( LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7 );
 DownTimer timer;
 
 
-void print_time( uint8_t row, uint8_t col, uint8_t minutes, uint8_t seconds )
+void print_time( uint8_t col, uint8_t row, uint8_t minutes, uint8_t seconds )
 {
    lcd.setCursor( col, row );
 
@@ -182,6 +182,22 @@ void print_time( uint8_t row, uint8_t col, uint8_t minutes, uint8_t seconds )
    lcd.print( ":" );
    if( seconds < 10 ) lcd.print( "0" );
    lcd.print( seconds );
+}
+
+void print_sensors( uint8_t col, uint8_t row, Inputs& inputs )
+{
+   lcd.setCursor( col, row );
+
+   lcd.print( inputs.upper_tank_top    ? "1" : "_" );
+   lcd.print( inputs.upper_tank_bottom ? "2" : "_" );
+   lcd.print( inputs.lower_tank_top    ? "3" : "_" );
+   lcd.print( inputs.lower_tank_bottom ? "4" : "_" );
+}
+
+void print_text( uint8_t col, uint8_t row, const char* txt )
+{
+   lcd.setCursor( col, row );
+   lcd.print( txt );
 }
 
 
@@ -215,7 +231,8 @@ void setup()
    delay( 4000 );
 
    lcd.clear();
-   lcd.print( "Waiting..." );
+//   lcd.print( "Waiting..." );
+               print_text( 6, 0, "WAITING..." ); 
 }
 
 void read_sensors( Inputs& inputs )
@@ -254,6 +271,8 @@ void loop()
    static Inputs inputs;
    static eStates state = eStates::WAITING;
 
+   static bool error = false;
+
 
    delay( SYSTEM_TICK );
 
@@ -266,11 +285,11 @@ void loop()
    }
 
 
-   if( state == eStates::UPPER_TANK_FILLING )
+   if( not error )
    {
       uint8_t minutes, seconds;
       timer.get( &minutes, &seconds );
-      print_time( 1, 5, minutes, seconds );
+      print_time( 0, 1, minutes, seconds );
    }
 
 
@@ -308,6 +327,11 @@ void loop()
 
       serial_report( inputs );
 
+      if( not error )
+      {
+         print_sensors( 0, 0, inputs );
+      }
+
       switch( state )
       {
          case eStates::WAITING:
@@ -318,8 +342,7 @@ void loop()
 
                timer.set( 1, 15, true );
 
-               lcd.clear();
-               lcd.print( "UP_TNK FILL" );
+               print_text( 6, 0, "FIL UP TNK" );
             }
             else
             {
@@ -337,8 +360,9 @@ void loop()
 
                lcd_backlight_timer = 0;
 
-               lcd.clear();
-               lcd.print( "LO_TNK FILL" );
+               timer.stop();
+
+               print_text( 6, 0, "FIL LO TNK" );
             }
             else if( inputs.upper_tank_top == HIGH )
             {
@@ -347,10 +371,8 @@ void loop()
 
                timer.stop();
 
-               lcd.clear();
-               lcd.print( "WAITING..." );
+               print_text( 6, 0, "WAITING..." ); 
             }
-//            else if( working_timer == 0 )
             else if( timer.is_done() )
             {
                state = eStates::TIME_OVER;
@@ -358,6 +380,8 @@ void loop()
 
                lcd_backlight_timer = MS_TO_TICKS( 500 );
                lcd_backlight_state = 0;
+
+               error = true;
 
                lcd.clear();
                lcd.print( "   TIME OVER!" );
@@ -377,8 +401,9 @@ void loop()
                state = eStates::UPPER_TANK_FILLING;
                digitalWrite( WATER_PUMP, HIGH );
 
-               lcd.clear();
-               lcd.print( "UP_TNK FILL" );
+               timer.set( 1, 15, true );
+
+               print_text( 6, 0, "FIL UP TNK" );
             }
             break;
 
