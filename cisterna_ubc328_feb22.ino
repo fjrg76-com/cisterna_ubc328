@@ -69,6 +69,7 @@ enum class eStates: uint8_t
    UPPER_TANK_FILLING,
    LOWER_TANK_FILLING,
    TIME_OVER,
+   SENSORS_SWAPPED,
 //   UPPER_TANK_DELAY,
 };
 
@@ -335,7 +336,26 @@ void loop()
       switch( state )
       {
          case eStates::WAITING:
-            if( inputs.upper_tank_bottom == LOW and inputs.lower_tank_bottom == HIGH )
+            if( ( inputs.upper_tank_top == HIGH and inputs.upper_tank_bottom == LOW )
+                  or ( inputs.lower_tank_top == HIGH and inputs.lower_tank_bottom == LOW ) )
+            {
+               digitalWrite( WATER_PUMP, LOW );
+
+               state = eStates::SENSORS_SWAPPED;
+
+               timer.stop();
+
+               lcd_backlight_timer = MS_TO_TICKS( 500 );
+               lcd_backlight_state = 0;
+
+               error = true;
+
+               lcd.clear();
+               lcd.print( "SENSORS SWAPPED" );
+               lcd.setCursor( 0, 1 );
+               lcd.print( "  Verify them!" );
+            }
+            else if( inputs.upper_tank_bottom == LOW and inputs.lower_tank_bottom == HIGH )
             {
                state = eStates::UPPER_TANK_FILLING;
                digitalWrite( WATER_PUMP, HIGH );
@@ -350,9 +370,9 @@ void loop()
             }
             break;
 
+
          case eStates::UPPER_TANK_FILLING:
          {
-
             if( inputs.lower_tank_bottom == LOW )
             {
                state = eStates::LOWER_TANK_FILLING;
@@ -386,7 +406,7 @@ void loop()
                lcd.clear();
                lcd.print( "   TIME OVER!" );
                lcd.setCursor( 0, 1 );
-               lcd.print( "Press reset" );
+               lcd.print( "  Press reset" );
             }
             else
             {
@@ -395,6 +415,7 @@ void loop()
             break;
          }
 
+         
          case eStates::LOWER_TANK_FILLING:
             if( inputs.lower_tank_top == HIGH )
             {
@@ -407,8 +428,24 @@ void loop()
             }
             break;
 
+         
          case eStates::TIME_OVER: // never goes back
             break;
+
+
+         case eStates::SENSORS_SWAPPED:
+            if( not( ( inputs.upper_tank_top == HIGH and inputs.upper_tank_bottom == LOW )
+                  or ( inputs.lower_tank_top == HIGH and inputs.lower_tank_bottom == LOW ) ) )
+            {
+               state = eStates::WAITING;
+
+               error = false;
+               lcd_backlight_timer = 0;
+               lcd_backlight_state = 0;
+
+               lcd.clear();
+               print_text( 6, 0, "WAITING..." ); 
+            }
       }
    }
 }
