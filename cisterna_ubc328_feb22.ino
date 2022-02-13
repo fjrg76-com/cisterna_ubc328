@@ -20,24 +20,24 @@
 #include <stdint.h>
 #include <LiquidCrystal.h>
 
-#define MS_TO_TICKS( x ) ( (x) / ( SYSTEM_TICK ) )
 #define SYSTEM_TICK 100 // in milliseconds
+#define MS_TO_TICKS( x ) ( (x) / ( SYSTEM_TICK ) )
 
 enum eSensors
 {
-   UPPER_TANK_TOP = 15,
+   UPPER_TANK_TOP    = 15,
    UPPER_TANK_BOTTOM = 16,
-   LOWER_TANK_TOP = 17,
+   LOWER_TANK_TOP    = 17,
    LOWER_TANK_BOTTOM = 18,
-   SENSORS_COMMON = 19,
+   SENSORS_COMMON    = 19,
 };
 
 enum eActuators
 {
-   WATER_PUMP = 2,
+   WATER_PUMP    = 2,
    LCD_BACKLIGHT = 3,
-   BUZZER = 8,
-   LED_ONBOARD = 13,
+   BUZZER        = 8,
+   LED_ONBOARD   = 13,
 };
 
 enum eAnalogInputs
@@ -73,6 +73,51 @@ enum class eStates: uint8_t
 //   UPPER_TANK_DELAY,
 };
 
+struct Time
+{
+   uint8_t minutes;
+   uint8_t seconds;
+
+   void operator+=( uint8_t inc );
+   void operator-=( uint8_t dec );
+};
+
+
+void Time::operator+=( uint8_t inc )
+{
+   this->seconds += inc;
+   if( this->seconds > 59 )
+   {
+      this->seconds = 0;
+      ++this->minutes;
+      if( this->minutes > 99 ) this->minutes = 0;
+   }
+}
+
+void Time::operator-=( uint8_t dec )
+{
+   if( (this->seconds - dec) >= 0 )
+   {
+      this->seconds -= dec;
+   }
+   else
+   {
+      this->seconds = 60 - dec;
+
+      if( this->minutes > 0 )
+      {
+         --this->minutes;
+      }
+      else
+      {
+         this->minutes = 99;
+      }
+   }
+}
+
+//----------------------------------------------------------------------
+//  
+//----------------------------------------------------------------------
 class DownTimer
 {
 public:
@@ -166,12 +211,167 @@ void DownTimer::state_machine()
 }
 
 
+
 //----------------------------------------------------------------------
 //  
 //----------------------------------------------------------------------
+
+
+class Keypad
+{
+public:
+   enum class eKey: uint8_t
+   {
+      Enter,
+      Down,
+      Up,
+      Back,
+      Menu,
+      None,
+   };
+
+   Keypad();
+   Keypad& operator=(Keypad&) = delete;
+   Keypad(Keypad&) = delete;
+
+   void begin( uint8_t analog_pin );
+   void state_machine();
+   eKey get();
+
+private:
+   uint8_t pin{0};
+   bool ready{false};
+   eKey key{eKey::None};
+   uint8_t state{0};
+   uint16_t ticks{0};
+   bool decoding{false};
+
+   eKey read();
+};
+
+Keypad::Keypad()
+{
+   // nothing
+}
+
+void Keypad::begin( uint8_t analog_pin )
+{
+   this->pin = analog_pin;
+}
+
+
+Keypad::eKey Keypad::get()
+{
+   static uint8_t state = 0;
+   static uint16_t ticks = 0;
+   static auto last_key = eKey::None;
+
+   switch( state )
+   {
+      case 0:
+         last_key = read();
+         if( last_key != eKey::None )
+         {
+            state = 1;
+            ticks = MS_TO_TICKS( 100 );
+            this->key = eKey::None;
+         }
+         break;
+
+      case 1:
+         --ticks;
+         if( ticks == 0 )
+         {
+            if( last_key == read() )
+            {
+               state = 2;
+               ticks = MS_TO_TICKS( 2000 );
+               this->key = last_key;
+            }
+            else
+            {
+               state = 0;
+               last_key = eKey::None;
+            }
+         }
+         break;
+
+      case 2:
+         --ticks;
+         if( ticks == 0 )
+         {
+            if( last_key == read() )
+            {
+               state = 2;
+               ticks = MS_TO_TICKS( 200 );
+               this->key = last_key;
+            }
+            else
+            {
+               state = 3;
+               ticks = MS_TO_TICKS( 500 );
+               last_key = eKey::None;
+               this->key = eKey::None;
+            }
+         }
+         else
+         {
+            this->key = eKey::None;
+         }
+         break;
+
+      case 3:
+         --ticks;
+         if( ticks == 0 )
+         {
+            state = 0;
+            last_key = eKey::None;
+         }
+         this->key = eKey::None;
+         break;
+   }
+
+   return this->key;
+}
+
+Keypad::eKey Keypad::read()
+{
+   uint16_t val = 0;
+   for( uint8_t i = 8; i > 0; --i ) val += analogRead( this->pin );
+   val >>= 3;
+
+   if( val < 100 ) return eKey::Enter;
+   if( 160 < val and val <= 300 ) return eKey::Down;
+   if( 390 < val and val <= 500 ) return eKey::Up;
+   if( 560 < val and val <= 700 ) return eKey::Back;
+   if( 780 < val and val <= 850 ) return eKey::Menu;
+   else return eKey::None;
+}
+
+void Keypad::state_machine()
+{
+
+}
+
+
+
+
+
+
+
+
+
+
+//----------------------------------------------------------------------
+//  
+//----------------------------------------------------------------------
+
 LiquidCrystal lcd( LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7 );
 
 DownTimer timer;
+
+Keypad keypad;
+
 
 
 void print_time( uint8_t col, uint8_t row, uint8_t minutes, uint8_t seconds )
@@ -220,8 +420,8 @@ void setup()
    pinMode( LCD_BACKLIGHT, OUTPUT );
 
    Serial.begin( 115200 );
-
    lcd.begin( 16, 2 );
+   keypad.begin( A0 );
 
    digitalWrite( LCD_BACKLIGHT, HIGH );
    lcd.clear();
@@ -232,8 +432,7 @@ void setup()
    delay( 4000 );
 
    lcd.clear();
-//   lcd.print( "Waiting..." );
-               print_text( 6, 0, "WAITING..." ); 
+   print_text( 6, 0, "WAITING..." ); 
 }
 
 void read_sensors( Inputs& inputs )
@@ -262,8 +461,8 @@ void serial_report( Inputs& inputs )
 
 void loop()
 {
-   static uint8_t main_timer = MS_TO_TICKS( 1000 );
-   static uint8_t seconds_tick_base = MS_TO_TICKS( 1000 );
+   static uint16_t main_timer = MS_TO_TICKS( 1000 );
+   static uint16_t seconds_tick_base = MS_TO_TICKS( 1000 );
 
 
    static uint16_t lcd_backlight_timer = 0;
@@ -275,7 +474,16 @@ void loop()
    static bool error = false;
 
 
-   delay( SYSTEM_TICK );
+   static Time downTimer_set = { 1, 15 };
+   
+
+   static unsigned long last_time = 0;
+   auto now = millis();
+   if( not ( now - last_time >= ( SYSTEM_TICK ) ) ) return;
+   last_time = now;
+
+   keypad.state_machine();
+
 
    --seconds_tick_base;
    if( seconds_tick_base == 0 )
@@ -286,7 +494,8 @@ void loop()
    }
 
 
-   if( not error )
+   static bool settings = false;
+   if( not error and settings == false )
    {
       uint8_t minutes, seconds;
       timer.get( &minutes, &seconds );
@@ -326,7 +535,7 @@ void loop()
 
       read_sensors( inputs );
 
-      serial_report( inputs );
+//      serial_report( inputs );
 
       if( not error )
       {
@@ -336,8 +545,8 @@ void loop()
       switch( state )
       {
          case eStates::WAITING:
-            if( ( inputs.upper_tank_top == HIGH and inputs.upper_tank_bottom == LOW )
-                  or ( inputs.lower_tank_top == HIGH and inputs.lower_tank_bottom == LOW ) )
+            if(   ( inputs.upper_tank_top == HIGH and inputs.upper_tank_bottom == LOW )
+               or ( inputs.lower_tank_top == HIGH and inputs.lower_tank_bottom == LOW ) )
             {
                digitalWrite( WATER_PUMP, LOW );
 
@@ -360,7 +569,8 @@ void loop()
                state = eStates::UPPER_TANK_FILLING;
                digitalWrite( WATER_PUMP, HIGH );
 
-               timer.set( 1, 15, true );
+//               timer.set( 1, 15, true );
+               timer.set( downTimer_set.minutes, downTimer_set.seconds, true );
 
                print_text( 6, 0, "FIL UP TNK" );
             }
@@ -422,7 +632,7 @@ void loop()
                state = eStates::UPPER_TANK_FILLING;
                digitalWrite( WATER_PUMP, HIGH );
 
-               timer.set( 1, 15, true );
+               timer.set( downTimer_set.minutes, downTimer_set.seconds, true );
 
                print_text( 6, 0, "FIL UP TNK" );
             }
@@ -446,6 +656,51 @@ void loop()
                lcd.clear();
                print_text( 6, 0, "WAITING..." ); 
             }
+      }
+   }
+
+
+   if( state == eStates::WAITING )
+   {
+      Keypad::eKey key = keypad.get();
+      // get() must be called in every system tick
+
+      switch( key )
+      {
+         case Keypad::eKey::Up:
+            settings = true;
+            downTimer_set += 15;
+            Serial.println( "UP" );
+            break;
+
+         case Keypad::eKey::Down:
+            settings = true;
+            downTimer_set -= 15;
+            Serial.println( "DN" );
+            break;
+
+         case Keypad::eKey::Enter:
+            settings = false;
+            timer.set( downTimer_set.minutes, downTimer_set.seconds, false );
+            Serial.println( "OK" );
+            break;
+
+         case Keypad::eKey::Back:
+            settings = false;
+            timer.get( &downTimer_set.minutes, &downTimer_set.seconds );
+            Serial.println( "BK" );
+            break;
+
+         case Keypad::eKey::Menu:
+            break;
+
+         case Keypad::eKey::None:
+            break;
+      }
+
+      if( key != Keypad::eKey::None )
+      {
+         print_time( 0, 1, downTimer_set.minutes, downTimer_set.seconds );
       }
    }
 }
