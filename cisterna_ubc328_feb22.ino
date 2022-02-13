@@ -356,10 +356,131 @@ void Keypad::state_machine()
 
 
 
+//----------------------------------------------------------------------
+//  
+//----------------------------------------------------------------------
 
 
+class Blink
+{
+public:
+   enum class Mode: uint8_t { ONCE, REPETITIVE, FOREVER };
 
+   Blink();
+   Blink& operator=(Blink&) = delete;
+   Blink(Blink&) = delete;
 
+   void begin( uint8_t pin );
+   void set( Mode mode, uint16_t ticks_on, uint16_t times = 1, uint16_t ticks_off = 0 );
+   void start();
+   void stop();
+   void state_machine();
+
+private:
+   uint8_t pin{0};
+
+   uint16_t ticks_onMOD{0};
+   uint16_t ticks_offMOD{0};
+   uint16_t ticks{0};
+
+   Mode mode{Mode::ONCE};
+
+   uint16_t timesMOD{0};
+   uint16_t times{0};
+   bool running{false};
+   uint8_t state{0};
+};
+
+Blink::Blink()
+{
+   // nothing
+}
+
+void Blink::begin( uint8_t pin )
+{
+   this->pin = pin;
+   pinMode( this->pin, OUTPUT );
+}
+
+void Blink::set( Mode mode, uint16_t ticks_on, uint16_t times, uint16_t ticks_off )
+{
+   this->mode         = mode;
+   this->ticks_onMOD  = ticks_on;
+   this->timesMOD     = times;
+   this->ticks_offMOD = ticks_off;
+}
+
+void Blink::start()
+{
+   this->running = false;
+
+   this->ticks = this->ticks_onMOD;
+
+   if( this->mode == Mode::REPETITIVE )
+   {
+      this->times = this->timesMOD;
+   }
+
+   this->state = 0;
+   this->running = true;
+
+   digitalWrite( this->pin, HIGH );
+}
+
+void Blink::stop()
+{
+   this->running = false;
+}
+
+void Blink::state_machine()
+{
+   if( this->running )
+   {
+      switch( this->state )
+      {
+         case 0:
+            --this->ticks;
+            if( this->ticks == 0 )
+            {
+               digitalWrite( this->pin, LOW );
+
+               if( this->mode == Mode::REPETITIVE or this->mode == Mode::FOREVER )
+               {
+                  this->ticks = this->ticks_offMOD;
+                  this->state = 1;
+               }
+               else
+               {
+                  this->running = false;
+               }
+            }
+            break;
+
+         case 1:
+            --this->ticks;
+            if( this->ticks == 0 )
+            {
+               if( this->mode == Mode::REPETITIVE )
+               {
+                  --this->times;
+                  if( this->times == 0 )
+                  {
+                     this->running = false;
+                  }
+               }
+               else
+               {
+                  this->state = 0;
+                  this->ticks = this->ticks_onMOD;
+
+                  digitalWrite( this->pin, HIGH );
+               }
+            }
+            break;
+
+      } // switch state
+   } // if this->running
+}
 
 
 //----------------------------------------------------------------------
@@ -663,7 +784,7 @@ void loop()
    if( state == eStates::WAITING )
    {
       Keypad::eKey key = keypad.get();
-      // get() must be called in every system tick
+      // .get() must be called in every system tick
 
       switch( key )
       {
