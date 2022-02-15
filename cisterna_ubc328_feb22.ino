@@ -70,7 +70,7 @@ enum class eStates: uint8_t
    LOWER_TANK_FILLING,
    TIME_OVER,
    SENSORS_SWAPPED,
-//   UPPER_TANK_DELAY,
+   DELAY_AFTER,
 };
 
 struct Time
@@ -200,7 +200,6 @@ void DownTimer::state_machine()
          if( this->minutes > 0 ) --this->minutes;
       }
       else --this->seconds;
-
 
       if( this->seconds == 0 and this->minutes == 0 )
       {
@@ -497,6 +496,7 @@ Blink lcd_backlight;
 
 Blink led13;
 
+
 void print_time( uint8_t col, uint8_t row, uint8_t minutes, uint8_t seconds )
 {
    lcd.setCursor( col, row );
@@ -537,10 +537,7 @@ void setup()
    pinMode( WATER_PUMP, OUTPUT );
    digitalWrite( WATER_PUMP, LOW );
 
-//   pinMode( LED_ONBOARD, OUTPUT );
    pinMode( BUZZER, OUTPUT );
-
-//   pinMode( LCD_BACKLIGHT, OUTPUT );
 
    Serial.begin( 115200 );
    lcd.begin( 16, 2 );
@@ -554,7 +551,6 @@ void setup()
    led13.set( Blink::eMode::FOREVER, MS_TO_TICKS( 100 ), MS_TO_TICKS( 900 ) );
    led13.start();
 
-//   digitalWrite( LCD_BACKLIGHT, HIGH );
    lcd.clear();
    lcd.home();
    lcd.print( "    UB-C328" );
@@ -596,9 +592,6 @@ void loop()
    static uint16_t seconds_tick_base = MS_TO_TICKS( 1000 );
 
 
-//   static uint16_t lcd_backlight_timer = 0;
-//   static uint8_t lcd_backlight_state = 0;
-
    static Inputs inputs;
    static eStates state = eStates::WAITING;
 
@@ -607,6 +600,8 @@ void loop()
 
    static Time downTimer_set = { 1, 15 };
    
+   static DownTimer timer_after;
+   // delay for after the upper tank was filled in order to avoid the water bounces.
 
    static unsigned long last_time = 0;
    auto now = millis();
@@ -624,6 +619,7 @@ void loop()
       seconds_tick_base = MS_TO_TICKS( 1000 );
 
       timer.state_machine();
+      timer_after.state_machine();
    }
 
 
@@ -635,32 +631,6 @@ void loop()
       print_time( 0, 1, minutes, seconds );
    }
 
-
-#if 0 
-   if( lcd_backlight_timer > 0 )
-   {
-      --lcd_backlight_timer;
-
-      if( lcd_backlight_timer == 0 )
-      {
-         lcd_backlight_timer = MS_TO_TICKS( 500 );
-
-         switch( lcd_backlight_state )
-         {
-            case 0:
-               lcd_backlight_state = 1;
-               digitalWrite( LCD_BACKLIGHT, LOW );
-               break;
-
-            case 1:
-               lcd_backlight_state = 0;
-               digitalWrite( LCD_BACKLIGHT, HIGH );
-               break;
-         }
-      }
-   }
-#endif  
-
 //-------------------------------------------------------------------------------- 
 
    --main_timer;
@@ -669,8 +639,6 @@ void loop()
       main_timer = MS_TO_TICKS( 1000 );
 
       read_sensors( inputs );
-
-//      serial_report( inputs );
 
       if( not error )
       {
@@ -683,14 +651,12 @@ void loop()
             if(   ( inputs.upper_tank_top == HIGH and inputs.upper_tank_bottom == LOW )
                or ( inputs.lower_tank_top == HIGH and inputs.lower_tank_bottom == LOW ) )
             {
-               digitalWrite( WATER_PUMP, LOW );
-
                state = eStates::SENSORS_SWAPPED;
+
+               digitalWrite( WATER_PUMP, LOW );
 
                timer.stop();
 
-//               lcd_backlight_timer = MS_TO_TICKS( 500 );
-//               lcd_backlight_state = 0;
                lcd_backlight.stop();
                lcd_backlight.set( Blink::eMode::FOREVER, MS_TO_TICKS( 500 ), MS_TO_TICKS( 500 ) );
                lcd_backlight.start();
@@ -708,7 +674,6 @@ void loop()
 
                digitalWrite( WATER_PUMP, HIGH );
 
-//               timer.set( 1, 15, true );
                timer.set( downTimer_set.minutes, downTimer_set.seconds, true );
 
                lcd_backlight.stop();
@@ -721,7 +686,7 @@ void loop()
             {
                digitalWrite( WATER_PUMP, LOW );
             }
-            break;
+         break;
 
 
          case eStates::UPPER_TANK_FILLING:
@@ -731,8 +696,6 @@ void loop()
                state = eStates::LOWER_TANK_FILLING;
 
                digitalWrite( WATER_PUMP, LOW );
-
-//               lcd_backlight_timer = 0;
 
                timer.stop();
 
@@ -744,24 +707,24 @@ void loop()
             }
             else if( inputs.upper_tank_top == HIGH )
             {
-               state = eStates::WAITING;
-               digitalWrite( WATER_PUMP, LOW );
+               state = eStates::DELAY_AFTER;
 
                timer.stop();
+
+               timer_after.set( 0, 5, true );
 
                lcd_backlight.stop();
                lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
                lcd_backlight.start();
 
-               print_text( 6, 0, "WAITING..." ); 
+               print_text( 6, 0, "   DONE!  " );
             }
             else if( timer.is_done() )
             {
                state = eStates::TIME_OVER;
+
                digitalWrite( WATER_PUMP, LOW );
 
-//               lcd_backlight_timer = MS_TO_TICKS( 500 );
-//               lcd_backlight_state = 0;
                lcd_backlight.set( Blink::eMode::FOREVER, MS_TO_TICKS( 500 ), MS_TO_TICKS( 500 ) );
                lcd_backlight.start();
 
@@ -776,8 +739,8 @@ void loop()
             {
                ;
             }
-            break;
          }
+         break;
 
          
          case eStates::LOWER_TANK_FILLING:
@@ -809,8 +772,7 @@ void loop()
                state = eStates::WAITING;
 
                error = false;
-//               lcd_backlight_timer = 0;
-//               lcd_backlight_state = 0;
+
                lcd_backlight.stop();
                lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
                lcd_backlight.start();
@@ -818,6 +780,23 @@ void loop()
                lcd.clear();
                print_text( 6, 0, "WAITING..." ); 
             }
+            break;
+
+
+         case eStates::DELAY_AFTER:
+            if( inputs.lower_tank_bottom == LOW or timer_after.is_done() )
+            {
+               state = eStates::WAITING;
+
+               digitalWrite( WATER_PUMP, LOW );
+
+               timer_after.stop();
+
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+               lcd_backlight.start();
+               print_text( 6, 0, "WAITING..." ); 
+            }
+            break;
       }
    }
 
@@ -825,36 +804,38 @@ void loop()
    if( state == eStates::WAITING )
    {
       Keypad::eKey key = keypad.get();
-      // .get() must be called in every system tick
+      // .get() must be called in every system tick (because, you don't need to know,
+      // it implements a state machine).
 
       switch( key )
       {
          case Keypad::eKey::Up:
             settings = true;
             downTimer_set += 15;
-            Serial.println( "UP" );
             break;
+
 
          case Keypad::eKey::Down:
             settings = true;
             downTimer_set -= 15;
-            Serial.println( "DN" );
             break;
+
 
          case Keypad::eKey::Enter:
             settings = false;
             timer.set( downTimer_set.minutes, downTimer_set.seconds, false );
-            Serial.println( "OK" );
             break;
+
 
          case Keypad::eKey::Back:
             settings = false;
             timer.get( &downTimer_set.minutes, &downTimer_set.seconds );
-            Serial.println( "BK" );
             break;
+
 
          case Keypad::eKey::Menu:
             break;
+
 
          case Keypad::eKey::None:
             break;
@@ -864,9 +845,9 @@ void loop()
       {
          print_time( 0, 1, downTimer_set.minutes, downTimer_set.seconds );
 
-               lcd_backlight.stop();
-               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
-               lcd_backlight.start();
+         lcd_backlight.stop();
+         lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+         lcd_backlight.start();
       }
    }
 }
