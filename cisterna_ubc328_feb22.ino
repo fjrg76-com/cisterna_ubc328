@@ -364,14 +364,14 @@ void Keypad::state_machine()
 class Blink
 {
 public:
-   enum class Mode: uint8_t { ONCE, REPETITIVE, FOREVER };
+   enum class eMode: uint8_t { ONCE, REPETITIVE, FOREVER };
 
    Blink();
    Blink& operator=(Blink&) = delete;
    Blink(Blink&) = delete;
 
    void begin( uint8_t pin );
-   void set( Mode mode, uint16_t ticks_on, uint16_t times = 1, uint16_t ticks_off = 0 );
+   void set( eMode mode, uint16_t ticks_on, uint16_t ticks_off = 0, uint16_t times = 1);
    void start();
    void stop();
    void state_machine();
@@ -383,7 +383,7 @@ private:
    uint16_t ticks_offMOD{0};
    uint16_t ticks{0};
 
-   Mode mode{Mode::ONCE};
+   eMode mode{eMode::ONCE};
 
    uint16_t timesMOD{0};
    uint16_t times{0};
@@ -402,12 +402,12 @@ void Blink::begin( uint8_t pin )
    pinMode( this->pin, OUTPUT );
 }
 
-void Blink::set( Mode mode, uint16_t ticks_on, uint16_t times, uint16_t ticks_off )
+void Blink::set( eMode mode, uint16_t ticks_on, uint16_t ticks_off, uint16_t times )
 {
    this->mode         = mode;
    this->ticks_onMOD  = ticks_on;
-   this->timesMOD     = times;
    this->ticks_offMOD = ticks_off;
+   this->timesMOD     = times;
 }
 
 void Blink::start()
@@ -416,7 +416,7 @@ void Blink::start()
 
    this->ticks = this->ticks_onMOD;
 
-   if( this->mode == Mode::REPETITIVE )
+   if( this->mode == eMode::REPETITIVE )
    {
       this->times = this->timesMOD;
    }
@@ -444,7 +444,7 @@ void Blink::state_machine()
             {
                digitalWrite( this->pin, LOW );
 
-               if( this->mode == Mode::REPETITIVE or this->mode == Mode::FOREVER )
+               if( this->mode == eMode::REPETITIVE or this->mode == eMode::FOREVER )
                {
                   this->ticks = this->ticks_offMOD;
                   this->state = 1;
@@ -460,7 +460,7 @@ void Blink::state_machine()
             --this->ticks;
             if( this->ticks == 0 )
             {
-               if( this->mode == Mode::REPETITIVE )
+               if( this->mode == eMode::REPETITIVE )
                {
                   --this->times;
                   if( this->times == 0 )
@@ -468,7 +468,7 @@ void Blink::state_machine()
                      this->running = false;
                   }
                }
-               else
+               else // eMode::FOREVER:
                {
                   this->state = 0;
                   this->ticks = this->ticks_onMOD;
@@ -493,7 +493,9 @@ DownTimer timer;
 
 Keypad keypad;
 
+Blink lcd_backlight;
 
+Blink led13;
 
 void print_time( uint8_t col, uint8_t row, uint8_t minutes, uint8_t seconds )
 {
@@ -535,16 +537,24 @@ void setup()
    pinMode( WATER_PUMP, OUTPUT );
    digitalWrite( WATER_PUMP, LOW );
 
-   pinMode( LED_ONBOARD, OUTPUT );
+//   pinMode( LED_ONBOARD, OUTPUT );
    pinMode( BUZZER, OUTPUT );
 
-   pinMode( LCD_BACKLIGHT, OUTPUT );
+//   pinMode( LCD_BACKLIGHT, OUTPUT );
 
    Serial.begin( 115200 );
    lcd.begin( 16, 2 );
    keypad.begin( A0 );
 
-   digitalWrite( LCD_BACKLIGHT, HIGH );
+   lcd_backlight.begin( LCD_BACKLIGHT );
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
+               lcd_backlight.start();
+
+   led13.begin( LED_ONBOARD );
+   led13.set( Blink::eMode::FOREVER, MS_TO_TICKS( 100 ), MS_TO_TICKS( 900 ) );
+   led13.start();
+
+//   digitalWrite( LCD_BACKLIGHT, HIGH );
    lcd.clear();
    lcd.home();
    lcd.print( "    UB-C328" );
@@ -586,8 +596,8 @@ void loop()
    static uint16_t seconds_tick_base = MS_TO_TICKS( 1000 );
 
 
-   static uint16_t lcd_backlight_timer = 0;
-   static uint8_t lcd_backlight_state = 0;
+//   static uint16_t lcd_backlight_timer = 0;
+//   static uint8_t lcd_backlight_state = 0;
 
    static Inputs inputs;
    static eStates state = eStates::WAITING;
@@ -604,6 +614,8 @@ void loop()
    last_time = now;
 
    keypad.state_machine();
+   lcd_backlight.state_machine();
+   led13.state_machine();
 
 
    --seconds_tick_base;
@@ -624,6 +636,7 @@ void loop()
    }
 
 
+#if 0 
    if( lcd_backlight_timer > 0 )
    {
       --lcd_backlight_timer;
@@ -646,6 +659,7 @@ void loop()
          }
       }
    }
+#endif  
 
 //-------------------------------------------------------------------------------- 
 
@@ -675,8 +689,11 @@ void loop()
 
                timer.stop();
 
-               lcd_backlight_timer = MS_TO_TICKS( 500 );
-               lcd_backlight_state = 0;
+//               lcd_backlight_timer = MS_TO_TICKS( 500 );
+//               lcd_backlight_state = 0;
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::FOREVER, MS_TO_TICKS( 500 ), MS_TO_TICKS( 500 ) );
+               lcd_backlight.start();
 
                error = true;
 
@@ -688,14 +705,19 @@ void loop()
             else if( inputs.upper_tank_bottom == LOW and inputs.lower_tank_bottom == HIGH )
             {
                state = eStates::UPPER_TANK_FILLING;
+
                digitalWrite( WATER_PUMP, HIGH );
 
 //               timer.set( 1, 15, true );
                timer.set( downTimer_set.minutes, downTimer_set.seconds, true );
 
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+               lcd_backlight.start();
+
                print_text( 6, 0, "FIL UP TNK" );
             }
-            else
+            else // safety condition:
             {
                digitalWrite( WATER_PUMP, LOW );
             }
@@ -707,11 +729,16 @@ void loop()
             if( inputs.lower_tank_bottom == LOW )
             {
                state = eStates::LOWER_TANK_FILLING;
+
                digitalWrite( WATER_PUMP, LOW );
 
-               lcd_backlight_timer = 0;
+//               lcd_backlight_timer = 0;
 
                timer.stop();
+
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+               lcd_backlight.start();
 
                print_text( 6, 0, "FIL LO TNK" );
             }
@@ -722,6 +749,10 @@ void loop()
 
                timer.stop();
 
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+               lcd_backlight.start();
+
                print_text( 6, 0, "WAITING..." ); 
             }
             else if( timer.is_done() )
@@ -729,8 +760,10 @@ void loop()
                state = eStates::TIME_OVER;
                digitalWrite( WATER_PUMP, LOW );
 
-               lcd_backlight_timer = MS_TO_TICKS( 500 );
-               lcd_backlight_state = 0;
+//               lcd_backlight_timer = MS_TO_TICKS( 500 );
+//               lcd_backlight_state = 0;
+               lcd_backlight.set( Blink::eMode::FOREVER, MS_TO_TICKS( 500 ), MS_TO_TICKS( 500 ) );
+               lcd_backlight.start();
 
                error = true;
 
@@ -751,9 +784,14 @@ void loop()
             if( inputs.lower_tank_top == HIGH )
             {
                state = eStates::UPPER_TANK_FILLING;
+
                digitalWrite( WATER_PUMP, HIGH );
 
                timer.set( downTimer_set.minutes, downTimer_set.seconds, true );
+
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+               lcd_backlight.start();
 
                print_text( 6, 0, "FIL UP TNK" );
             }
@@ -771,8 +809,11 @@ void loop()
                state = eStates::WAITING;
 
                error = false;
-               lcd_backlight_timer = 0;
-               lcd_backlight_state = 0;
+//               lcd_backlight_timer = 0;
+//               lcd_backlight_state = 0;
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
+               lcd_backlight.start();
 
                lcd.clear();
                print_text( 6, 0, "WAITING..." ); 
@@ -822,6 +863,10 @@ void loop()
       if( key != Keypad::eKey::None )
       {
          print_time( 0, 1, downTimer_set.minutes, downTimer_set.seconds );
+
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
+               lcd_backlight.start();
       }
    }
 }
