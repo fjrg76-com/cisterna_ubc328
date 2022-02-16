@@ -374,6 +374,7 @@ public:
    void start();
    void stop();
    void state_machine();
+   bool is_running();
 
 private:
    uint8_t pin{0};
@@ -481,6 +482,10 @@ void Blink::state_machine()
    } // if this->running
 }
 
+bool Blink::is_running()
+{
+   return this->running;
+}
 
 //----------------------------------------------------------------------
 //  
@@ -495,6 +500,8 @@ Keypad keypad;
 Blink lcd_backlight;
 
 Blink led13;
+
+Blink buzzer;
 
 
 void print_time( uint8_t col, uint8_t row, uint8_t minutes, uint8_t seconds )
@@ -537,19 +544,19 @@ void setup()
    pinMode( WATER_PUMP, OUTPUT );
    digitalWrite( WATER_PUMP, LOW );
 
-   pinMode( BUZZER, OUTPUT );
-
    Serial.begin( 115200 );
    lcd.begin( 16, 2 );
    keypad.begin( A0 );
 
    lcd_backlight.begin( LCD_BACKLIGHT );
-               lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
-               lcd_backlight.start();
+   lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 30000 ) );
+   lcd_backlight.start();
 
    led13.begin( LED_ONBOARD );
    led13.set( Blink::eMode::FOREVER, MS_TO_TICKS( 100 ), MS_TO_TICKS( 900 ) );
    led13.start();
+
+   buzzer.begin( BUZZER );
 
    lcd.clear();
    lcd.home();
@@ -611,6 +618,7 @@ void loop()
    keypad.state_machine();
    lcd_backlight.state_machine();
    led13.state_machine();
+   buzzer.state_machine();
 
 
    --seconds_tick_base;
@@ -717,6 +725,9 @@ void loop()
                lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
                lcd_backlight.start();
 
+               buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 300 ) );
+               buzzer.start();
+
                print_text( 6, 0, "   DONE!  " );
             }
             else if( timer.is_done() )
@@ -729,6 +740,9 @@ void loop()
                lcd_backlight.start();
 
                error = true;
+
+               buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 1000 ) );
+               buzzer.start();
 
                lcd.clear();
                lcd.print( "   TIME OVER!" );
@@ -824,6 +838,10 @@ void loop()
          case Keypad::eKey::Enter:
             settings = false;
             timer.set( downTimer_set.minutes, downTimer_set.seconds, false );
+
+            buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 600 ) );
+            buzzer.start();
+
             break;
 
 
@@ -848,6 +866,12 @@ void loop()
          lcd_backlight.stop();
          lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
          lcd_backlight.start();
+
+         if( not buzzer.is_running() )
+         {
+            buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 100 ) );
+            buzzer.start();
+         }
       }
    }
 }
