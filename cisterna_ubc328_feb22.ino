@@ -73,6 +73,83 @@ enum class eStates: uint8_t
    DELAY_AFTER,
 };
 
+
+struct WorkingTime
+{
+   uint8_t minutes;
+   uint8_t seconds;
+};
+
+struct WorkingTimeWithCRC
+{
+   WorkingTime data;
+   uint32_t crc16;
+};
+
+#include <EEPROM.h>
+
+// Function taken and adapted from:
+// https://docs.arduino.cc/learn/programming/eeprom-guide 
+uint32_t eeprom_crc( uint16_t len, void* stream )
+{
+   const uint32_t crc_table[16] = 
+   {
+      0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac,
+      0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
+      0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c,
+      0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c
+   };
+
+   uint32_t crc = ~0L;
+
+   uint8_t* p = (uint8_t*) stream;
+
+
+   for( uint16_t i = 0; i < len; ++i ) 
+   {
+      crc = crc_table[ ( crc ^ p[ i ] ) & 0x0f ] ^ ( crc >> 4 );
+      crc = crc_table[ (  crc ^ ( p[ i ] >> 4 ) ) & 0x0f ] ^ ( crc >> 4 );
+      crc = ~crc;
+   }
+
+   return crc;
+}
+
+bool eeprom_get( uint16_t address, WorkingTimeWithCRC* data )
+{
+   EEPROM.get( address, *data );
+
+   auto crc = eeprom_crc( 
+         sizeof( WorkingTimeWithCRC ) - sizeof( uint32_t ),
+          (void*)&(data->data) );
+
+   if( crc != data->crc16 )
+   {
+      Serial.println( "CRC failed!" );
+      return false;
+   }
+
+   Serial.println( "CRC passed!" );
+   return true;
+}
+
+void eeprom_put( uint16_t address, WorkingTimeWithCRC* data )
+{
+   auto crc16 = eeprom_crc( 
+         sizeof( WorkingTimeWithCRC ) - sizeof( uint32_t ),
+         (void*)&( data->data ) );
+
+   if( crc16 != data->crc16 )
+   {
+      data->crc16 = crc16;
+
+      EEPROM.put( address, *data );
+   }
+}
+
+//----------------------------------------------------------------------
+//  
+//----------------------------------------------------------------------
 struct Time
 {
    uint8_t minutes;
@@ -503,6 +580,12 @@ Blink led13;
 
 Blink buzzer;
 
+WorkingTimeWithCRC g_working_time;
+
+
+//----------------------------------------------------------------------
+//  
+//----------------------------------------------------------------------
 
 void print_time( uint8_t col, uint8_t row, uint8_t minutes, uint8_t seconds )
 {
@@ -553,7 +636,7 @@ void setup()
    lcd_backlight.start();
 
    led13.begin( LED_ONBOARD );
-   led13.set( Blink::eMode::FOREVER, MS_TO_TICKS( 100 ), MS_TO_TICKS( 900 ) );
+   led13.set( Blink::eMode::FOREVER, MS_TO_TICKS( 100 ), MS_TO_TICKS( 1900 ) );
    led13.start();
 
    buzzer.begin( BUZZER );
@@ -567,6 +650,14 @@ void setup()
 
    lcd.clear();
    print_text( 6, 0, "WAITING..." ); 
+
+   if( not eeprom_get( 0, &g_working_time ) )
+   {
+      g_working_time.data.minutes = 2;
+      g_working_time.data.seconds = 30;
+
+      eeprom_put( 0, &g_working_time );
+   }
 }
 
 void read_sensors( Inputs& inputs )
@@ -605,7 +696,12 @@ void loop()
    static bool error = false;
 
 
-   static Time downTimer_set = { 1, 15 };
+//   static Time downTimer_set = { 1, 15 };
+   static Time downTimer_set = 
+   { 
+      g_working_time.data.minutes,
+      g_working_time.data.seconds
+   };
    
    static DownTimer timer_after;
    // delay for after the upper tank was filled in order to avoid the water bounces.
@@ -838,6 +934,10 @@ void loop()
          case Keypad::eKey::Enter:
             settings = false;
             timer.set( downTimer_set.minutes, downTimer_set.seconds, false );
+
+            g_working_time.data.minutes = downTimer_set.minutes;
+            g_working_time.data.seconds = downTimer_set.seconds;
+            eeprom_put( 0, &g_working_time );
 
             buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 600 ) );
             buzzer.start();
