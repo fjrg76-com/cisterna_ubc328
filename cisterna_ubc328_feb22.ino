@@ -697,7 +697,6 @@ void loop()
    static bool error = false;
 
 
-//   static Time downTimer_set = { 1, 15 };
    static Time downTimer_set = 
    { 
       g_working_time.data.minutes,
@@ -917,8 +916,6 @@ void loop()
    }
 
 
-//   if( state == eStates::WAITING )
-//   {
    Keypad::eKey key = keypad.get();
       // .get() must be called in every system tick (because, you don't need to know,
       // it implements a state machine).
@@ -1019,5 +1016,4 @@ void loop()
             }
          }
       }
-//   }
 }
