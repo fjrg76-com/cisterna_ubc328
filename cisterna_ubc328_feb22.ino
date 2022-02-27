@@ -731,7 +731,16 @@ void loop()
    if( not error and settings == false )
    {
       uint8_t minutes, seconds;
-      timer.get( &minutes, &seconds );
+
+      if( state == eStates::WAITING )
+      {
+         minutes = downTimer_set.minutes;
+         seconds = downTimer_set.seconds;
+      }
+      else // process is running:
+      {
+         timer.get( &minutes, &seconds );
+      }
       print_time( 0, 1, minutes, seconds );
    }
 
