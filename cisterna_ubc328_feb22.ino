@@ -71,6 +71,7 @@ enum class eStates: uint8_t
    TIME_OVER,
    SENSORS_SWAPPED,
    DELAY_AFTER,
+   EMERGENCY_STOP,
 };
 
 
@@ -426,7 +427,7 @@ Keypad::eKey Keypad::read()
 
 void Keypad::state_machine()
 {
-
+   // moved to .get()
 }
 
 
@@ -907,47 +908,88 @@ void loop()
                print_text( 6, 0, "WAITING..." ); 
             }
             break;
+
+
+         case eStates::EMERGENCY_STOP: // never goes back
+            break;
+
       }
    }
 
 
-   if( state == eStates::WAITING )
-   {
-      Keypad::eKey key = keypad.get();
+//   if( state == eStates::WAITING )
+//   {
+   Keypad::eKey key = keypad.get();
       // .get() must be called in every system tick (because, you don't need to know,
       // it implements a state machine).
 
+   if( key != Keypad::eKey::None )
+   {
       switch( key )
       {
          case Keypad::eKey::Up:
-            settings = true;
-            downTimer_set += 15;
+            if( state == eStates::WAITING )
+            {
+               settings = true;
+               downTimer_set += 15;
+            }
             break;
 
 
          case Keypad::eKey::Down:
-            settings = true;
-            downTimer_set -= 15;
+            if( state == eStates::WAITING )
+            {
+               settings = true;
+               downTimer_set -= 15;
+            }
             break;
 
 
          case Keypad::eKey::Enter:
-            settings = false;
-            timer.set( downTimer_set.minutes, downTimer_set.seconds, false );
+            if( settings )
+            {
+               settings = false;
+               timer.set( downTimer_set.minutes, downTimer_set.seconds, false );
 
-            g_working_time.data.minutes = downTimer_set.minutes;
-            g_working_time.data.seconds = downTimer_set.seconds;
-            eeprom_put( 0, &g_working_time );
+               g_working_time.data.minutes = downTimer_set.minutes;
+               g_working_time.data.seconds = downTimer_set.seconds;
+               eeprom_put( 0, &g_working_time );
 
-            buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 600 ) );
-            buzzer.start();
-
+               buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 600 ) );
+               buzzer.start();
+            }
             break;
 
 
          case Keypad::eKey::Back:
-            settings = false;
-            timer.get( &downTimer_set.minutes, &downTimer_set.seconds );
+            if( state == eStates::UPPER_TANK_FILLING or state == eStates::TIME_OVER )
+            {
+               state = eStates::EMERGENCY_STOP;
+
+               digitalWrite( WATER_PUMP, LOW );
+
+               timer.stop();
+
+               lcd_backlight.stop();
+               lcd_backlight.set( Blink::eMode::FOREVER, MS_TO_TICKS( 500 ), MS_TO_TICKS( 500 ) );
+               lcd_backlight.start();
+
+               error = true;
+
+               lcd.clear();
+               lcd.print( "EMERGENCY STOP!" );
+               lcd.setCursor( 0, 1 );
+               lcd.print( "  Press reset" );
+            }
+            else if( settings )
+            {
+               settings = false;
+               timer.get( &downTimer_set.minutes, &downTimer_set.seconds );
+            }
+            else
+            {
+               ;
+            }
             break;
 
 
@@ -958,20 +1000,24 @@ void loop()
          case Keypad::eKey::None:
             break;
       }
+   }
 
       if( key != Keypad::eKey::None )
       {
-         print_time( 0, 1, downTimer_set.minutes, downTimer_set.seconds );
-
-         lcd_backlight.stop();
-         lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
-         lcd_backlight.start();
-
-         if( not buzzer.is_running() )
+         if( not error )
          {
-            buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 100 ) );
-            buzzer.start();
+            print_time( 0, 1, downTimer_set.minutes, downTimer_set.seconds );
+
+            lcd_backlight.stop();
+            lcd_backlight.set( Blink::eMode::ONCE, MS_TO_TICKS( 10000 ) );
+            lcd_backlight.start();
+
+            if( not buzzer.is_running() )
+            {
+               buzzer.set( Blink::eMode::ONCE, MS_TO_TICKS( 100 ) );
+               buzzer.start();
+            }
          }
       }
-   }
+//   }
 }
